@@ -8,11 +8,11 @@ from plotly.subplots import make_subplots
 # --- CẤU HÌNH TRANG WEB ---
 st.set_page_config(layout="wide", page_title="Stock Advisor PRO", page_icon="📈")
 
-# --- CSS TÙY CHỈNH (GIAO DIỆN CAO CẤP) ---
+# --- CSS TÙY CHỈNH (GIAO DIỆN DARK MODE CAO CẤP) ---
 st.markdown("""
 <style>
-    /* 1. IMPORT FONT HIỆN ĐẠI */
-    @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap');
+    /* 1. IMPORT FONT */
+    @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700;900&display=swap');
 
     html, body, [class*="css"] {
         font-family: 'Roboto', 'Segoe UI', sans-serif;
@@ -25,92 +25,86 @@ st.markdown("""
         background: -webkit-linear-gradient(45deg, #FF4B4B, #FF914D);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
-        font-size: 3.5rem;
+        font-size: 3rem;
         margin-bottom: 5px;
-        letter-spacing: -1px;
+        text-transform: uppercase;
+        letter-spacing: 2px;
     }
     .sub-title {
         text-align: center;
-        color: #888;
+        color: #B0B0B0; /* Đã chỉnh sáng hơn */
         font-size: 1.1rem;
+        font-weight: 300;
         margin-bottom: 30px;
+        border-bottom: 1px solid #333;
+        padding-bottom: 20px;
     }
 
-    /* 3. RESULT CARD (THẺ KẾT LUẬN) - ĐẸP HƠN */
+    /* 3. RESULT CARD */
     .result-card {
-        padding: 25px;
-        border-radius: 15px;
+        padding: 20px;
+        border-radius: 12px;
         text-align: center;
         margin-bottom: 20px;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.2);
         border: 1px solid rgba(255,255,255,0.1);
+        box-shadow: 0 4px 6px rgba(0,0,0,0.2);
     }
-    /* Màu sắc động cho thẻ kết luận */
     .bg-green { background: linear-gradient(135deg, #1b5e20 0%, #2e7d32 100%); }
     .bg-red { background: linear-gradient(135deg, #b71c1c 0%, #c62828 100%); }
     .bg-orange { background: linear-gradient(135deg, #e65100 0%, #ef6c00 100%); }
     .bg-blue { background: linear-gradient(135deg, #0d47a1 0%, #1565c0 100%); }
 
-    .result-title {
-        font-size: 2.2rem;
-        font-weight: 800;
-        color: white;
-        margin: 0;
-        text-shadow: 0 2px 4px rgba(0,0,0,0.3);
-    }
-    .result-reason {
-        font-size: 1.1rem;
-        color: rgba(255,255,255,0.9);
-        margin-top: 10px;
-        font-style: italic;
-    }
+    .result-title { font-size: 2rem; font-weight: 800; color: white; margin: 0; }
+    .result-reason { font-size: 1rem; color: rgba(255,255,255,0.9); margin-top: 10px; font-style: italic; }
 
-    /* 4. REPORT BOX (PHÂN TÍCH CHI TIẾT) */
+    /* 4. REPORT BOX */
     .report-box {
         background-color: #1E1E1E;
         border: 1px solid #333;
         border-radius: 12px;
-        padding: 25px;
+        padding: 20px;
         margin-top: 10px;
     }
     .report-header {
         color: #FF914D;
-        font-size: 1.2rem;
+        font-size: 1.1rem;
         font-weight: bold;
         margin-bottom: 15px;
         border-bottom: 1px solid #333;
         padding-bottom: 10px;
+        text-transform: uppercase;
     }
-    .report-item {
-        margin-bottom: 12px;
-        font-size: 1rem;
-        color: #E0E0E0;
-        display: flex;
-        align-items: center;
-    }
-    .icon-dot {
-        margin-right: 10px;
-        font-size: 1.2rem;
-    }
+    .report-item { margin-bottom: 10px; font-size: 0.95rem; color: #E0E0E0; display: flex; align-items: center; }
+    .icon-dot { margin-right: 10px; }
 
     /* 5. METRIC CARDS */
     .metric-container {
         background-color: #262730;
         border: 1px solid #41424C;
-        border-radius: 12px;
-        padding: 20px;
+        border-radius: 10px;
+        padding: 15px;
         text-align: center;
         height: 100%;
-        transition: transform 0.2s;
     }
-    .metric-container:hover {
-        transform: translateY(-5px);
-        border-color: #FF914D;
-    }
-    .metric-label { font-size: 0.9rem; color: #AAA; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 1px; }
-    .metric-value { font-size: 2rem; font-weight: 900; color: #FFF; margin-bottom: 5px; }
-    .trend-badge { padding: 4px 12px; border-radius: 20px; font-size: 0.9rem; font-weight: bold; color: white; display: inline-block; }
+    .metric-label { font-size: 0.8rem; color: #AAA; margin-bottom: 5px; text-transform: uppercase; }
+    .metric-value { font-size: 1.8rem; font-weight: 900; color: #FFF; }
+    .trend-badge { padding: 4px 10px; border-radius: 15px; font-size: 0.85rem; font-weight: bold; color: white; display: inline-block; }
     
+    /* 6. FOOTER DISCLAIMER */
+    .footer-box {
+        margin-top: 50px;
+        padding: 20px;
+        border-top: 1px solid #333;
+        text-align: center;
+        color: #888; /* Màu chữ sáng hơn */
+        font-size: 0.85rem;
+        background-color: #0E1117;
+    }
+    .footer-warning {
+        color: #FF914D;
+        font-weight: bold;
+        margin-bottom: 5px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -180,7 +174,7 @@ def analyze_strategy(df):
     if buy_trigger:
         if adx < 25:
             if (di_minus > di_plus) and (di_minus < prev['-DI']):
-                rec, reason, color_class = "MUA NGAY", "Giá chạm đáy BB, RSI thấp. Xu hướng giảm yếu và đang suy thoái.", "bg-green"
+                rec, reason, color_class = "MUA NGAY", "Giá chạm đáy BB, RSI thấp. Xu hướng giảm yếu.", "bg-green"
             else:
                 rec, reason, color_class = "CHỜ MUA", "Giá rẻ nhưng lực bán vẫn còn. Chờ DI- giảm.", "bg-orange"
         elif adx > 50:
@@ -206,7 +200,7 @@ def analyze_strategy(df):
         else:
              rec, reason, color_class = "CÂN NHẮC BÁN", "Vùng quá mua, cân nhắc chốt lời.", "bg-orange"
 
-    # --- REPORT TEXT HTML (CUSTOM STYLE) ---
+    # --- REPORT HTML ---
     trend_state = "TĂNG" if di_plus > di_minus else "GIẢM"
     trend_strength = "YẾU (Sideway)" if adx < 25 else ("CỰC MẠNH" if adx > 50 else "TRUNG BÌNH")
     
@@ -218,7 +212,7 @@ def analyze_strategy(df):
     if rsi < 30: rsi_state = "<span style='color:#4CAF50; font-weight:bold'>QUÁ BÁN (Cơ hội)</span>"
     elif rsi > 70: rsi_state = "<span style='color:#FF5252; font-weight:bold'>QUÁ MUA (Rủi ro)</span>"
     
-    trend_color = "#4CAF50" if di_plus > di_minus else "#FF5252" # Xanh/Đỏ
+    trend_color = "#4CAF50" if di_plus > di_minus else "#FF5252"
 
     report = f"""
     <div class='report-box'>
@@ -238,7 +232,7 @@ def render_metric_card(label, value, delta=None, color=None):
     if delta is not None:
         delta_color = "#4CAF50" if delta > 0 else ("#FF5252" if delta < 0 else "#888")
         arrow = "▲" if delta > 0 else ("▼" if delta < 0 else "")
-        delta_html = f"<div style='font-size:0.9rem; margin-top:5px; color:{delta_color}'>{arrow} {abs(delta):.1f} vs phiên trước</div>"
+        delta_html = f"<div style='font-size:0.85rem; margin-top:5px; color:{delta_color}'>{arrow} {abs(delta):.1f}</div>"
     
     value_html = f"<div class='metric-value'>{value}</div>"
     if color: 
@@ -255,7 +249,8 @@ def render_metric_card(label, value, delta=None, color=None):
 # --- GIAO DIỆN CHÍNH ---
 
 st.markdown("<h1 class='main-title'>STOCK ADVISOR PRO</h1>", unsafe_allow_html=True)
-st.markdown("<p class='sub-title'>Công cụ săn tìm điểm đảo chiều thông minh</p>", unsafe_allow_html=True)
+# Slogan mới chuyên nghiệp hơn
+st.markdown("<p class='sub-title'>Hệ thống Hỗ trợ Phân tích & Quản trị Rủi ro Đầu tư</p>", unsafe_allow_html=True)
 
 # FORM
 col1, col2, col3 = st.columns([1, 2, 1])
@@ -287,7 +282,7 @@ if submit_button:
                 curr = df.iloc[-1]
                 prev = df.iloc[-2]
                 
-                # 1. KẾT QUẢ (CUSTOM CARD)
+                # 1. KẾT QUẢ
                 st.markdown(f"""
                 <div class='result-card {bg_class}'>
                     <div class='result-title'>{rec}</div>
@@ -295,7 +290,7 @@ if submit_button:
                 </div>
                 """, unsafe_allow_html=True)
                 
-                # 2. PHÂN TÍCH CHI TIẾT
+                # 2. BÁO CÁO
                 st.markdown(report, unsafe_allow_html=True)
                 
                 # 3. CHỈ SỐ
@@ -339,7 +334,6 @@ if submit_button:
                 fig.add_hline(y=25, line_dash="dot", row=3, col=1, line_color="gray")
                 fig.add_hline(y=50, line_dash="dot", row=3, col=1, line_color="#FF5252")
                 
-                # Layout Tối ưu Dark Mode
                 fig.update_layout(height=800, xaxis_rangeslider_visible=False, 
                                   paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
                                   font=dict(color='#FAFAFA'),
@@ -352,5 +346,12 @@ if submit_button:
     except Exception as e:
         st.error(f"Đã xảy ra lỗi hệ thống: {e}")
 
-st.markdown("---")
-st.markdown("<p style='text-align: center; color: #666; font-size: 0.8em;'>⚠️ Dữ liệu từ Yahoo Finance (Trễ 15p). Công cụ chỉ mang tính tham khảo.</p>", unsafe_allow_html=True)
+# Footer (Đã làm nổi bật và chuyên nghiệp)
+st.markdown("""
+<div class='footer-box'>
+    <div class='footer-warning'>⚠️ TUYÊN BỐ MIỄN TRỪ TRÁCH NHIỆM</div>
+    <div>Công cụ này sử dụng các thuật toán phân tích kỹ thuật (Bollinger Bands, RSI, ADX) để hỗ trợ ra quyết định.</div>
+    <div>Đây <b>KHÔNG</b> phải là lời khuyên đầu tư tài chính chính thức. Người sử dụng tự chịu trách nhiệm về giao dịch của mình.</div>
+    <div style='margin-top:10px; font-size: 0.8em; color: #666;'>Dữ liệu thị trường được cung cấp bởi Yahoo Finance (Độ trễ 15 phút).</div>
+</div>
+""", unsafe_allow_html=True)
