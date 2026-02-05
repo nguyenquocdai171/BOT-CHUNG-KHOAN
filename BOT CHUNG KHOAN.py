@@ -16,12 +16,15 @@ def calculate_indicators(df):
     df['Upper'] = df['SMA20'] + (2 * df['StdDev'])
     df['Lower'] = df['SMA20'] - (2 * df['StdDev'])
     
-    # 2. RSI
+    # 2. RSI (Updated: Dùng Wilder's Smoothing chuẩn quốc tế)
     delta = df['Close'].diff()
     gain = (delta.where(delta > 0, 0)).fillna(0)
     loss = (-delta.where(delta < 0, 0)).fillna(0)
-    avg_gain = gain.rolling(window=14).mean()
-    avg_loss = loss.rolling(window=14).mean()
+    
+    # Thay rolling mean (SMA) bằng ewm (EMA) với alpha=1/14 để khớp với TradingView/FireAnt
+    avg_gain = gain.ewm(alpha=1/14, min_periods=14, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1/14, min_periods=14, adjust=False).mean()
+    
     rs = avg_gain / avg_loss
     df['RSI'] = 100 - (100 / (1 + rs))
     
@@ -49,50 +52,79 @@ def calculate_indicators(df):
 
 # --- LOGIC MUA BÁN ---
 def analyze_strategy(df):
-    if len(df) < 25: return "Không đủ dữ liệu", "NEUTRAL", "gray"
+    if len(df) < 25: return "Không đủ dữ liệu", "NEUTRAL", "gray", "Chưa đủ dữ liệu để phân tích."
     
     curr = df.iloc[-1]
     prev = df.iloc[-2]
     prev2 = df.iloc[-3]
     
+    # Lấy các giá trị hiện tại
+    price = curr['Close']
+    rsi = curr['RSI']
+    adx = curr['ADX']
+    di_plus = curr['+DI']
+    di_minus = curr['-DI']
+    lower_band = curr['Lower']
+    upper_band = curr['Upper']
+
     # Trigger conditions
-    buy_trigger = (curr['Close'] <= curr['Lower'] * 1.01) and (curr['RSI'] < 30)
-    sell_trigger = (curr['Close'] >= curr['Upper'] * 0.99) and (curr['RSI'] > 70)
+    buy_trigger = (price <= lower_band * 1.01) and (rsi < 30)
+    sell_trigger = (price >= upper_band * 0.99) and (rsi > 70)
     
-    rec, reason, color = "QUAN SÁT (HOLD)", "Chưa có tín hiệu.", "blue"
+    rec, reason, color = "QUAN SÁT (HOLD)", "Chưa có tín hiệu giao dịch đặc biệt.", "blue"
     
+    # --- LOGIC ĐÁNH GIÁ ---
     # CHIẾN LƯỢC MUA
     if buy_trigger:
-        if curr['ADX'] < 25:
-            if (curr['-DI'] > curr['+DI']) and (curr['-DI'] < prev['-DI']):
-                rec, reason, color = "MUA NGAY", "Giá chạm đáy, RSI thấp, ADX yếu. DI- đang suy giảm.", "green"
+        if adx < 25:
+            if (di_minus > di_plus) and (di_minus < prev['-DI']):
+                rec, reason, color = "MUA NGAY", "Giá chạm đáy Bollinger Band, RSI < 30. Xu hướng giảm yếu (ADX thấp) và đang suy yếu dần (DI- giảm).", "green"
             else:
-                rec, reason, color = "CHỜ MUA", "Giá tốt nhưng lực bán chưa giảm nhiệt.", "orange"
-        elif curr['ADX'] > 50:
-            cooling = (curr['ADX'] < prev['ADX'] < prev2['ADX']) and (curr['-DI'] < prev['-DI'] < prev2['-DI'])
+                rec, reason, color = "CHỜ MUA", "Giá đã rẻ nhưng lực bán vẫn chưa giảm nhiệt. Cần chờ DI- quay đầu giảm.", "orange"
+        elif adx > 50:
+            cooling = (adx < prev['ADX'] < prev2['ADX']) and (di_minus < prev['-DI'] < prev2['-DI'])
             if cooling:
-                rec, reason, color = "MUA NGAY", "Bắt đáy sau đợt sập mạnh (ADX và DI- giảm 2 phiên).", "green"
+                rec, reason, color = "MUA NGAY", "Bắt đáy sau đợt sập mạnh. Đà giảm cực đại đã qua (ADX và DI- giảm 2 phiên liên tiếp).", "green"
             else:
-                rec, reason, color = "ĐỨNG NGOÀI", f"Đang sập mạnh (ADX={curr['ADX']:.1f}). Chờ tín hiệu giảm nhiệt.", "red"
+                rec, reason, color = "ĐỨNG NGOÀI", f"Thị trường đang sập rất mạnh (ADX={adx:.1f}). Tuyệt đối không bắt dao rơi lúc này.", "red"
         else:
-             if (curr['-DI'] > curr['+DI']) and (curr['-DI'] < prev['-DI']):
-                rec, reason, color = "MUA THĂM DÒ", "Giá rẻ, xu hướng giảm trung bình.", "green"
+             if (di_minus > di_plus) and (di_minus < prev['-DI']):
+                rec, reason, color = "MUA THĂM DÒ", "Giá rẻ, xu hướng giảm ở mức trung bình. Có thể giải ngân từng phần.", "green"
 
     # CHIẾN LƯỢC BÁN
     elif sell_trigger:
-        if curr['ADX'] < 25:
-             if (curr['+DI'] > curr['-DI']) and (curr['+DI'] < prev['+DI']):
-                rec, reason, color = "BÁN NGAY", "Giá đỉnh, RSI cao, lực tăng yếu.", "red"
-        elif curr['ADX'] > 50:
-            cooling = (curr['ADX'] < prev['ADX'] < prev2['ADX']) and (curr['+DI'] < prev['+DI'] < prev2['+DI'])
+        if adx < 25:
+             if (di_plus > di_minus) and (di_plus < prev['+DI']):
+                rec, reason, color = "BÁN NGAY", "Giá chạm đỉnh Bollinger Band, RSI > 70. Lực tăng yếu (ADX thấp), giá dễ đảo chiều.", "red"
+        elif adx > 50:
+            cooling = (adx < prev['ADX'] < prev2['ADX']) and (di_plus < prev['+DI'] < prev2['+DI'])
             if cooling:
-                rec, reason, color = "BÁN CHỐT LỜI", "Siêu sóng kết thúc (ADX và DI+ giảm 2 phiên).", "red"
+                rec, reason, color = "BÁN CHỐT LỜI", "Siêu sóng tăng đã có dấu hiệu kết thúc (ADX và DI+ giảm 2 phiên liên tiếp).", "red"
             else:
-                rec, reason, color = "NẮM GIỮ", f"Trend tăng cực mạnh (ADX={curr['ADX']:.1f}). Gồng lãi tiếp.", "green"
+                rec, reason, color = "NẮM GIỮ", f"Xu hướng tăng đang cực mạnh (ADX={adx:.1f}). Tiếp tục gồng lãi, chưa cần bán vội.", "green"
         else:
-             rec, reason, color = "CÂN NHẮC BÁN", "Vùng quá mua.", "orange"
+             rec, reason, color = "CÂN NHẮC BÁN", "Giá đã vào vùng quá mua, cân nhắc chốt lời một phần.", "orange"
+
+    # --- TẠO BÁO CÁO PHÂN TÍCH CHI TIẾT ---
+    trend_state = "TĂNG" if di_plus > di_minus else "GIẢM"
+    trend_strength = "YẾU/SIDEWAY" if adx < 25 else ("CỰC MẠNH" if adx > 50 else "TRUNG BÌNH")
+    
+    price_pos = "trong biên độ an toàn"
+    if price <= lower_band * 1.01: price_pos = "chạm dải dưới (Vùng giá rẻ)"
+    elif price >= upper_band * 0.99: price_pos = "chạm dải trên (Vùng giá đắt)"
+    
+    rsi_state = "TRUNG TÍNH"
+    if rsi < 30: rsi_state = "QUÁ BÁN (Cơ hội mua)"
+    elif rsi > 70: rsi_state = "QUÁ MUA (Rủi ro chỉnh)"
+
+    report = f"""
+    - **Xu hướng:** Thị trường đang trong pha **{trend_state}** với cường độ **{trend_strength}** (ADX={adx:.1f}).
+    - **Vị thế giá:** Giá hiện tại đang **{price_pos}** của Bollinger Bands.
+    - **Động lượng (RSI):** Chỉ số RSI đạt {rsi:.1f}, trạng thái **{rsi_state}**.
+    - **Tín hiệu ADX/DI:** { "Phe Mua đang kiểm soát (+DI > -DI)" if di_plus > di_minus else "Phe Bán đang kiểm soát (-DI > +DI)" }.
+    """
              
-    return rec, reason, color
+    return rec, reason, color, report
 
 # --- GIAO DIỆN ---
 st.title("📈 Stock Advisor PRO (Web Version)")
@@ -111,7 +143,7 @@ if st.button("Phân Tích"):
             if isinstance(data.columns, pd.MultiIndex): data.columns = data.columns.get_level_values(0)
             
             df = calculate_indicators(data)
-            rec, reason, color = analyze_strategy(df)
+            rec, reason, color, report = analyze_strategy(df)
             curr = df.iloc[-1]
             
             # Hiển thị kết quả
@@ -121,7 +153,11 @@ if st.button("Phân Tích"):
             elif color == 'red': st.error(f"## {rec}")
             elif color == 'orange': st.warning(f"## {rec}")
             else: st.info(f"## {rec}")
+            
             st.write(f"**Lý do:** {reason}")
+            
+            # Hiển thị phân tích chi tiết
+            st.info(f"**📝 Phân Tích Chi Tiết:**\n{report}")
 
             # Metric
             c1, c2, c3 = st.columns(3)
