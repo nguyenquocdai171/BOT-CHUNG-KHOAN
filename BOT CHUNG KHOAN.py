@@ -1,25 +1,22 @@
+import streamlit as st
 import yfinance as yf
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-# --- CẤU HÌNH ---
-# Tắt các cảnh báo (Warning) gây rối mắt
-import warnings
-warnings.filterwarnings('ignore')
+# --- CẤU HÌNH TRANG WEB ---
+st.set_page_config(layout="wide", page_title="Stock Advisor PRO")
 
+# --- HÀM TÍNH TOÁN ---
 def calculate_indicators(df):
-    """
-    Tính toán Bollinger Bands, RSI, ADX, DI+, DI-
-    """
-    # 1. Bollinger Bands (20, 2)
+    # 1. BB
     df['SMA20'] = df['Close'].rolling(window=20).mean()
     df['StdDev'] = df['Close'].rolling(window=20).std()
     df['Upper'] = df['SMA20'] + (2 * df['StdDev'])
     df['Lower'] = df['SMA20'] - (2 * df['StdDev'])
-
-    # 2. RSI (14)
+    
+    # 2. RSI
     delta = df['Close'].diff()
     gain = (delta.where(delta > 0, 0)).fillna(0)
     loss = (-delta.where(delta < 0, 0)).fillna(0)
@@ -27,175 +24,140 @@ def calculate_indicators(df):
     avg_loss = loss.rolling(window=14).mean()
     rs = avg_gain / avg_loss
     df['RSI'] = 100 - (100 / (1 + rs))
-
-    # 3. ADX & DI (14)
+    
+    # 3. ADX/DI
     df['H-L'] = df['High'] - df['Low']
     df['H-PC'] = abs(df['High'] - df['Close'].shift(1))
     df['L-PC'] = abs(df['Low'] - df['Close'].shift(1))
     df['TR'] = df[['H-L', 'H-PC', 'L-PC']].max(axis=1)
-
+    
     df['UpMove'] = df['High'] - df['High'].shift(1)
     df['DownMove'] = df['Low'].shift(1) - df['Low']
     df['+DM'] = np.where((df['UpMove'] > df['DownMove']) & (df['UpMove'] > 0), df['UpMove'], 0)
     df['-DM'] = np.where((df['DownMove'] > df['UpMove']) & (df['DownMove'] > 0), df['DownMove'], 0)
-
-    # Làm mượt (Smoothing)
+    
     df['TR14'] = df['TR'].ewm(alpha=1/14, adjust=False).mean()
     df['+DM14'] = df['+DM'].ewm(alpha=1/14, adjust=False).mean()
     df['-DM14'] = df['-DM'].ewm(alpha=1/14, adjust=False).mean()
-
+    
     df['+DI'] = 100 * (df['+DM14'] / df['TR14'])
     df['-DI'] = 100 * (df['-DM14'] / df['TR14'])
     df['DX'] = 100 * abs(df['+DI'] - df['-DI']) / (df['+DI'] + df['-DI'])
     df['ADX'] = df['DX'].ewm(alpha=1/14, adjust=False).mean()
-
+    
     return df
 
+# --- LOGIC MUA BÁN ---
 def analyze_strategy(df):
-    """
-    Logic phân tích Mua/Bán (Phiên bản chuẩn BB + RSI + ADX)
-    """
-    if len(df) < 25:
-        return "Không đủ dữ liệu", "NEUTRAL"
-
+    if len(df) < 25: return "Không đủ dữ liệu", "NEUTRAL", "gray"
+    
     curr = df.iloc[-1]
     prev = df.iloc[-2]
     prev2 = df.iloc[-3]
-
-    price = curr['Close']
-    rsi = curr['RSI']
-    adx = curr['ADX']
-    di_plus = curr['+DI']
-    di_minus = curr['-DI']
-    lower_band = curr['Lower']
-    upper_band = curr['Upper']
-
-    recommendation = "QUAN SÁT (HOLD)"
-    reason = "Chưa có tín hiệu đặc biệt."
-
-    # --- 1. CHIẾN LƯỢC MUA (BẮT ĐÁY) ---
-    buy_trigger = (price <= lower_band * 1.01) and (rsi < 30)
-
+    
+    # Trigger conditions
+    buy_trigger = (curr['Close'] <= curr['Lower'] * 1.01) and (curr['RSI'] < 30)
+    sell_trigger = (curr['Close'] >= curr['Upper'] * 0.99) and (curr['RSI'] > 70)
+    
+    rec, reason, color = "QUAN SÁT (HOLD)", "Chưa có tín hiệu.", "blue"
+    
+    # CHIẾN LƯỢC MUA
     if buy_trigger:
-        if adx < 25:
-            if (di_minus > di_plus) and (di_minus < prev['-DI']):
-                recommendation = "MUA NGAY (BẮT ĐÁY)"
-                reason = "Giá chạm dải dưới, RSI thấp. ADX thấp (<25). DI- đang suy yếu."
+        if curr['ADX'] < 25:
+            if (curr['-DI'] > curr['+DI']) and (curr['-DI'] < prev['-DI']):
+                rec, reason, color = "MUA NGAY", "Giá chạm đáy, RSI thấp, ADX yếu. DI- đang suy giảm.", "green"
             else:
-                recommendation = "CHỜ MUA"
-                reason = "Thỏa điều kiện giá rẻ, nhưng lực bán (DI-) vẫn chưa giảm nhiệt."
-
-        elif adx > 50:
-            adx_cooling = (curr['ADX'] < prev['ADX']) and (prev['ADX'] < prev2['ADX'])
-            dim_cooling = (curr['-DI'] < prev['-DI']) and (prev['-DI'] < prev2['-DI'])
-
-            if adx_cooling and dim_cooling:
-                recommendation = "MUA NGAY (BẮT ĐÁY)"
-                reason = "Thị trường sập mạnh nhưng đà giảm đã gãy (ADX và DI- giảm 2 phiên liên tiếp)."
+                rec, reason, color = "CHỜ MUA", "Giá tốt nhưng lực bán chưa giảm nhiệt.", "orange"
+        elif curr['ADX'] > 50:
+            cooling = (curr['ADX'] < prev['ADX'] < prev2['ADX']) and (curr['-DI'] < prev['-DI'] < prev2['-DI'])
+            if cooling:
+                rec, reason, color = "MUA NGAY", "Bắt đáy sau đợt sập mạnh (ADX và DI- giảm 2 phiên).", "green"
             else:
-                recommendation = "KHÔNG MUA (CHỜ ĐỢI)"
-                reason = f"Đang sập mạnh (ADX={adx:.1f}). Chờ ADX và DI- giảm 2 phiên liên tiếp."
+                rec, reason, color = "ĐỨNG NGOÀI", f"Đang sập mạnh (ADX={curr['ADX']:.1f}). Chờ tín hiệu giảm nhiệt.", "red"
         else:
-            if (di_minus > di_plus) and (curr['-DI'] < prev['-DI']):
-                recommendation = "MUA THĂM DÒ"
-                reason = "Giá rẻ, xu hướng giảm trung bình. Có thể giải ngân từng phần."
+             if (curr['-DI'] > curr['+DI']) and (curr['-DI'] < prev['-DI']):
+                rec, reason, color = "MUA THĂM DÒ", "Giá rẻ, xu hướng giảm trung bình.", "green"
 
-    # --- 2. CHIẾN LƯỢC BÁN (CHỐT LỜI) ---
-    elif (price >= upper_band * 0.99) and (rsi > 70):
-        
-        if adx < 25:
-             if (di_plus > di_minus) and (di_plus < prev['+DI']):
-                recommendation = "BÁN NGAY"
-                reason = "Giá chạm đỉnh, RSI cao. ADX thấp, giá sẽ sớm đảo chiều."
-        
-        elif adx > 50:
-            adx_cooling = (curr['ADX'] < prev['ADX']) and (prev['ADX'] < prev2['ADX'])
-            dip_cooling = (curr['+DI'] < prev['+DI']) and (prev['+DI'] < prev2['+DI'])
-
-            if adx_cooling and dip_cooling:
-                recommendation = "BÁN NGAY (CHỐT LỜI)"
-                reason = "Siêu sóng đã có dấu hiệu kết thúc (ADX và DI+ giảm 2 phiên liên tiếp)."
+    # CHIẾN LƯỢC BÁN
+    elif sell_trigger:
+        if curr['ADX'] < 25:
+             if (curr['+DI'] > curr['-DI']) and (curr['+DI'] < prev['+DI']):
+                rec, reason, color = "BÁN NGAY", "Giá đỉnh, RSI cao, lực tăng yếu.", "red"
+        elif curr['ADX'] > 50:
+            cooling = (curr['ADX'] < prev['ADX'] < prev2['ADX']) and (curr['+DI'] < prev['+DI'] < prev2['+DI'])
+            if cooling:
+                rec, reason, color = "BÁN CHỐT LỜI", "Siêu sóng kết thúc (ADX và DI+ giảm 2 phiên).", "red"
             else:
-                recommendation = "NẮM GIỮ (GỒNG LÃI)"
-                reason = f"Xu hướng tăng đang cực mạnh (ADX={adx:.1f}). Đừng bán non!"
+                rec, reason, color = "NẮM GIỮ", f"Trend tăng cực mạnh (ADX={curr['ADX']:.1f}). Gồng lãi tiếp.", "green"
         else:
-             recommendation = "CÂN NHẮC BÁN"
-             reason = "Giá đã vào vùng quá mua."
+             rec, reason, color = "CÂN NHẮC BÁN", "Vùng quá mua.", "orange"
+             
+    return rec, reason, color
 
-    return recommendation, reason
+# --- GIAO DIỆN ---
+st.title("📈 Stock Advisor PRO (Web Version)")
+st.markdown("Hệ thống đánh giá xu hướng và tìm điểm đảo chiều theo chiến lược **Mean Reversion (BB + RSI) kết hợp Bộ lọc ADX**.")
 
-def main():
-    print("\n" + "="*50)
-    print("   TRỢ LÝ ĐẦU TƯ CHỨNG KHOÁN (TERMINAL VERSION)")
-    print("="*50 + "\n")
-    
-    ticker_input = input("Nhập mã cổ phiếu (ví dụ HPG, VNM): ").upper().strip()
-    if not ticker_input:
-        print("Bạn chưa nhập mã nào cả.")
-        return
+ticker = st.text_input("Nhập mã cổ phiếu (VN):", "HPG").upper()
 
-    # Thêm đuôi .VN nếu thiếu
-    ticker = ticker_input if ".VN" in ticker_input else f"{ticker_input}.VN"
-    
-    print(f"\n⏳ Đang tải dữ liệu và tính toán cho mã {ticker}...")
-
+if st.button("Phân Tích"):
     try:
-        # Tải dữ liệu
-        data = yf.download(ticker, period="1y", interval="1d", progress=False)
+        symbol = ticker if ".VN" in ticker else f"{ticker}.VN"
+        data = yf.download(symbol, period="1y", interval="1d", progress=False)
         
         if data.empty:
-            print("❌ Không tìm thấy dữ liệu. Vui lòng kiểm tra lại mã cổ phiếu.")
-            return
+            st.error("Không tìm thấy mã này!")
+        else:
+            if isinstance(data.columns, pd.MultiIndex): data.columns = data.columns.get_level_values(0)
+            
+            df = calculate_indicators(data)
+            rec, reason, color = analyze_strategy(df)
+            curr = df.iloc[-1]
+            
+            # Hiển thị kết quả
+            st.divider()
+            st.subheader(f"Kết quả phân tích: {ticker}")
+            if color == 'green': st.success(f"## {rec}")
+            elif color == 'red': st.error(f"## {rec}")
+            elif color == 'orange': st.warning(f"## {rec}")
+            else: st.info(f"## {rec}")
+            st.write(f"**Lý do:** {reason}")
 
-        # Fix lỗi MultiIndex của yfinance mới
-        if isinstance(data.columns, pd.MultiIndex):
-            data.columns = data.columns.get_level_values(0)
-
-        # Tính toán
-        df = calculate_indicators(data)
-        rec, reason = analyze_strategy(df)
-        curr = df.iloc[-1]
-
-        # In kết quả ra màn hình (Console)
-        print("\n" + "-"*30)
-        print(f"   KẾT QUẢ PHÂN TÍCH: {ticker}")
-        print("-"*30)
-        print(f"Giá hiện tại: {curr['Close']:,.0f}")
-        print(f"RSI (14):     {curr['RSI']:.1f}")
-        print(f"ADX (14):     {curr['ADX']:.1f}")
-        print(f"Trạng thái:   {'+DI > -DI (Phe Mua)' if curr['+DI'] > curr['-DI'] else '-DI > +DI (Phe Bán)'}")
-        print("-"*30)
-        print(f"KHUYẾN NGHỊ:  >> {rec} <<")
-        print(f"LÝ DO:        {reason}")
-        print("-"*30)
-
-        print("\n📈 Đang mở biểu đồ phân tích trong trình duyệt...")
-
-        # Vẽ biểu đồ
-        fig = make_subplots(rows=3, cols=1, shared_xaxes=True, 
-                            vertical_spacing=0.05, 
-                            row_heights=[0.5, 0.25, 0.25],
-                            subplot_titles=("Giá & Bollinger Bands", "RSI (14)", "ADX & DI"))
-
-        fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="Giá"), row=1, col=1)
-        fig.add_trace(go.Scatter(x=df.index, y=df['Upper'], line=dict(color='gray', width=1, dash='dash'), name="Upper"), row=1, col=1)
-        fig.add_trace(go.Scatter(x=df.index, y=df['Lower'], line=dict(color='gray', width=1, dash='dash'), name="Lower"), row=1, col=1)
-        
-        fig.add_trace(go.Scatter(x=df.index, y=df['RSI'], line=dict(color='purple', width=2), name="RSI"), row=2, col=1)
-        fig.add_hline(y=70, line_dash="dot", row=2, col=1, line_color="red")
-        fig.add_hline(y=30, line_dash="dot", row=2, col=1, line_color="green")
-        
-        fig.add_trace(go.Scatter(x=df.index, y=df['ADX'], line=dict(color='black', width=2), name="ADX"), row=3, col=1)
-        fig.add_trace(go.Scatter(x=df.index, y=df['+DI'], line=dict(color='green', width=1), name="+DI"), row=3, col=1)
-        fig.add_trace(go.Scatter(x=df.index, y=df['-DI'], line=dict(color='red', width=1), name="-DI"), row=3, col=1)
-        fig.add_hline(y=25, line_dash="dot", row=3, col=1, line_color="gray")
-        fig.add_hline(y=50, line_dash="dot", row=3, col=1, line_color="red")
-
-        fig.update_layout(height=800, title=f"Biểu đồ kỹ thuật: {ticker}", xaxis_rangeslider_visible=False)
-        fig.show() # Lệnh này sẽ bật cửa sổ trình duyệt hiển thị biểu đồ
-
+            # Metric
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Giá", f"{curr['Close']:,.0f}")
+            c2.metric("RSI", f"{curr['RSI']:.1f}")
+            c3.metric("ADX", f"{curr['ADX']:.1f}")
+            
+            # Hiển thị biểu đồ
+            fig = make_subplots(rows=3, cols=1, shared_xaxes=True, row_heights=[0.5, 0.25, 0.25], vertical_spacing=0.05,
+                               subplot_titles=("Giá & Bollinger Bands", "RSI (14)", "ADX (14) & DI"))
+            
+            # Giá & BB
+            fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="Giá"), row=1, col=1)
+            fig.add_trace(go.Scatter(x=df.index, y=df['Upper'], line=dict(color='gray', dash='dash'), name="Upper"), row=1, col=1)
+            fig.add_trace(go.Scatter(x=df.index, y=df['Lower'], line=dict(color='gray', dash='dash'), name="Lower"), row=1, col=1)
+            
+            # RSI
+            fig.add_trace(go.Scatter(x=df.index, y=df['RSI'], line=dict(color='purple'), name="RSI"), row=2, col=1)
+            fig.add_hline(y=70, line_dash="dot", row=2, col=1, line_color="red")
+            fig.add_hline(y=30, line_dash="dot", row=2, col=1, line_color="green")
+            
+            # ADX
+            fig.add_trace(go.Scatter(x=df.index, y=df['ADX'], line=dict(color='black'), name="ADX"), row=3, col=1)
+            fig.add_trace(go.Scatter(x=df.index, y=df['+DI'], line=dict(color='green'), name="+DI"), row=3, col=1)
+            fig.add_trace(go.Scatter(x=df.index, y=df['-DI'], line=dict(color='red'), name="-DI"), row=3, col=1)
+            fig.add_hline(y=25, line_dash="dot", row=3, col=1, line_color="gray")
+            fig.add_hline(y=50, line_dash="dot", row=3, col=1, line_color="red")
+            
+            fig.update_layout(height=800, xaxis_rangeslider_visible=False)
+            st.plotly_chart(fig, use_container_width=True)
+            
     except Exception as e:
-        print(f"❌ Có lỗi xảy ra: {e}")
+        st.error(f"Lỗi: {e}")
 
-if __name__ == "__main__":
-    main()
+# --- DISCLAIMER ---
+st.divider()
+st.caption("⚠️ **Tuyên bố miễn trừ trách nhiệm:**")
+st.caption("Công cụ này chỉ mang tính chất tham khảo dựa trên các thuật toán phân tích kỹ thuật và dữ liệu quá khứ. Đây không phải là lời khuyên đầu tư tài chính hay khuyến nghị mua bán chính thức. Người sử dụng tự chịu trách nhiệm hoàn toàn về các quyết định giao dịch và rủi ro tài chính của mình. Chúng tôi không chịu trách nhiệm cho bất kỳ khoản lỗ nào phát sinh từ việc sử dụng công cụ này.")
+st.caption("Dữ liệu được cung cấp bởi Yahoo Finance.")
