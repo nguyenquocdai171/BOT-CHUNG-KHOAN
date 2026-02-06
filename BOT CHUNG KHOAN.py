@@ -246,7 +246,7 @@ if submit_button or 'data' in st.session_state:
             st.markdown(report, unsafe_allow_html=True)
             st.markdown("<br>", unsafe_allow_html=True)
             
-            # --- BIỂU ĐỒ INTRADAY (ĐÃ BỎ ĐƯỜNG THAM CHIẾU) ---
+            # --- BIỂU ĐỒ INTRADAY (SẠCH SẼ - KHÔNG ĐƯỜNG KẺ) ---
             if not df_intra.empty:
                 st.divider()
                 latest_date = df_intra.index[0].strftime('%d/%m/%Y')
@@ -263,7 +263,7 @@ if submit_button or 'data' in st.session_state:
                     line=dict(color=line_color, width=2),
                     name='Giá Intraday'
                 ))
-                # Đã xóa đường tham chiếu ở đây
+                # Đã bỏ dòng add_hline (đường tham chiếu) theo yêu cầu
 
                 fig_intra.update_layout(
                     height=350, xaxis_rangeslider_visible=False,
@@ -287,13 +287,17 @@ if submit_button or 'data' in st.session_state:
             st.markdown("<br>", unsafe_allow_html=True)
             st.divider()
             
-            # --- BIỂU ĐỒ KỸ THUẬT (ĐỒNG BỘ THỜI GIAN CẢ 3 BIỂU ĐỒ) ---
+            # --- BIỂU ĐỒ KỸ THUẬT (ĐỒNG BỘ 100% ZOOM CHO CẢ 3 BIỂU ĐỒ) ---
             st.markdown(f"### 📊 Biểu đồ Kỹ Thuật ({ticker})")
+            
+            # Label hướng dẫn
+            st.caption(f"ℹ️ Điều chỉnh khung thời gian bên dưới sẽ áp dụng cho cả Biểu đồ Giá, RSI và ADX:")
+            
             time_tabs = st.radio("Chọn khung thời gian:", 
                                 ["1 Tháng", "3 Tháng", "6 Tháng", "1 Năm", "3 Năm", "Tất cả"], 
                                 horizontal=True, index=3)
             
-            # Lọc dữ liệu dựa trên lựa chọn
+            # Cắt dữ liệu (Filter) cho cả 3 biểu đồ
             df_chart = df.copy()
             if time_tabs == "1 Tháng": df_chart = df.iloc[-22:]
             elif time_tabs == "3 Tháng": df_chart = df.iloc[-66:]
@@ -319,7 +323,7 @@ if submit_button or 'data' in st.session_state:
 
             col_c1, col_c2 = st.columns(2)
             
-            # CHART 2: RSI (Đã sửa để dùng df_chart)
+            # CHART 2: RSI (Đã dùng df_chart để đồng bộ Zoom)
             with col_c1:
                 st.markdown("### 🚀 Chỉ số RSI")
                 fig2 = go.Figure()
@@ -330,10 +334,10 @@ if submit_button or 'data' in st.session_state:
                                 font=dict(color='#FAFAFA'), margin=dict(l=10, r=10, t=10, b=40),
                                 legend=dict(orientation="h", yanchor="top", y=-0.15, xanchor="center", x=0.5),
                                 xaxis=dict(showgrid=True, gridwidth=1, gridcolor='#333'),
-                                yaxis=dict(showgrid=True, gridwidth=1, gridcolor='#333', autorange=True))
-                st.plotly_chart(fig2, use_container_width=True, config={'scrollZoom': False})
+                                yaxis=dict(showgrid=True, gridwidth=1, gridcolor='#333'))
+                st.plotly_chart(fig2, use_container_width=True, config={'scrollZoom': False, 'displayModeBar': False})
 
-            # CHART 3: ADX (Đã sửa để dùng df_chart)
+            # CHART 3: ADX (Đã dùng df_chart để đồng bộ Zoom)
             with col_c2:
                 st.markdown("### ⚖️ Chỉ số ADX & DI")
                 fig3 = go.Figure()
@@ -345,8 +349,8 @@ if submit_button or 'data' in st.session_state:
                                 font=dict(color='#FAFAFA'), margin=dict(l=10, r=10, t=10, b=40),
                                 legend=dict(orientation="h", yanchor="top", y=-0.15, xanchor="center", x=0.5),
                                 xaxis=dict(showgrid=True, gridwidth=1, gridcolor='#333'),
-                                yaxis=dict(showgrid=True, gridwidth=1, gridcolor='#333', autorange=True))
-                st.plotly_chart(fig3, use_container_width=True, config={'scrollZoom': False})
+                                yaxis=dict(showgrid=True, gridwidth=1, gridcolor='#333'))
+                st.plotly_chart(fig3, use_container_width=True, config={'scrollZoom': False, 'displayModeBar': False})
 
         except Exception as e:
             st.error(f"Đã xảy ra lỗi hiển thị: {e}")
