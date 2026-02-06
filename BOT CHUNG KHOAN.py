@@ -71,10 +71,11 @@ st.markdown("""
     
     div.stButton > button { width: 100%; border-radius: 8px; font-weight: bold; height: 50px; font-size: 1.1rem; }
     
-    /* FORM ALIGNMENT */
-    /* Căn chỉnh checkbox cho thẳng hàng với input text */
+    /* CĂN CHỈNH FORM CHECKBOX */
     div[data-testid="stCheckbox"] {
-        margin-top: 5px; /* Đẩy checkbox xuống một chút */
+        display: flex;
+        justify-content: center; /* Căn giữa checkbox */
+        padding-top: 10px; /* Đẩy checkbox xuống một chút cho cân */
     }
     
     /* BACKTEST RESULT BOX */
@@ -123,7 +124,7 @@ def calculate_indicators(df):
     df['ADX'] = df['DX'].ewm(alpha=1/14, adjust=False).mean()
     return df
 
-# --- HÀM VẼ GIAO DIỆN CHỈ SỐ (ĐÃ FIX LỖI HTML) ---
+# --- HÀM VẼ GIAO DIỆN CHỈ SỐ ---
 def render_metric_card(label, value, delta=None, color=None):
     delta_html = ""
     if delta is not None:
@@ -136,16 +137,16 @@ def render_metric_card(label, value, delta=None, color=None):
     else:
         value_html = f"<div class='metric-value'>{value}</div>"
 
-    # Kết hợp string cẩn thận để tránh lỗi thẻ đóng dư thừa
-    card_content = f"""
+    card_html = f"""
+    <div class='metric-container'>
         <div class='metric-label'>{label}</div>
         <div class='metric-value-box'>
             {value_html}
             {delta_html}
         </div>
+    </div>
     """
-    
-    st.markdown(f"<div class='metric-container'>{card_content}</div>", unsafe_allow_html=True)
+    st.markdown(card_html, unsafe_allow_html=True)
 
 # --- LOGIC CHIẾN LƯỢC ---
 def check_signals(curr, prev, prev2):
@@ -280,19 +281,19 @@ st.markdown("""
 col1, col2, col3 = st.columns([1, 2, 1]) 
 with col2:
     with st.form(key='search_form'):
-        # CHIA LÀM 3 CỘT: MÃ - CHECKBOX - GIÁ TRỊ %
-        c_ticker, c_cb, c_val = st.columns([1.8, 0.6, 0.8])
+        # Cấu trúc: Mã (To) - Checkbox (Nhỏ) - Số % (Vừa)
+        c_ticker, c_cb, c_val = st.columns([2, 0.5, 0.8])
         
         with c_ticker:
             ticker_input = st.text_input("Mã cổ phiếu:", value="", placeholder="VD: HPG, VNM...").upper()
             
         with c_cb:
-            # Dùng st.write("") để đẩy checkbox xuống cho ngang hàng với input text
-            st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
-            use_sl = st.checkbox("Bật SL", value=True)
+            # Tạo nhãn thủ công để BẬT SL nằm trên, ô tick nằm dưới
+            st.markdown('<p style="font-size: 1rem; font-weight: bold; margin-bottom: 0px;">Bật SL</p>', unsafe_allow_html=True)
+            use_sl = st.checkbox("use_sl_hidden", value=True, label_visibility="collapsed")
             
         with c_val:
-            stop_loss_input = st.number_input("Mức %:", min_value=0.5, max_value=20.0, value=7.0, step=0.5)
+            stop_loss_input = st.number_input("Mức %:", min_value=0.5, max_value=20.0, value=7.0, step=0.5, disabled=not use_sl)
             
         submit_button = st.form_submit_button(label='🚀 PHÂN TÍCH & BACKTEST', use_container_width=True)
 
