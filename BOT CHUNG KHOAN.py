@@ -5,6 +5,7 @@ import numpy as np
 import plotly.graph_objects as go
 import streamlit.components.v1 as components
 import random
+from datetime import datetime, timedelta
 
 # --- CẤU HÌNH TRANG WEB ---
 st.set_page_config(layout="wide", page_title="Stock Advisor PRO", page_icon="📈")
@@ -28,15 +29,13 @@ st.markdown("""
         font-weight: 400; margin-bottom: 20px; letter-spacing: 0.5px;
     }
 
-    /* DISCLAIMER BOX (ĐÃ SỬA CẤU TRÚC DÒNG) */
+    /* DISCLAIMER BOX */
     .disclaimer-box {
         background-color: #1E1E1E; border: 1px solid #444; border-radius: 8px;
         padding: 20px; margin: 0 auto 30px auto; text-align: center; max-width: 800px;
         box-shadow: 0 4px 6px rgba(0,0,0,0.3);
     }
     .disclaimer-title { color: #FF5252; font-weight: bold; font-size: 1rem; text-transform: uppercase; margin-bottom: 12px; letter-spacing: 1px; }
-    
-    /* Các dòng riêng biệt */
     .d-line-1 { color: #AAA; font-size: 0.95rem; margin-bottom: 5px; }
     .d-line-2 { color: #E0E0E0; font-size: 1rem; font-weight: bold; margin-bottom: 5px; text-decoration: underline; text-decoration-color: #555; }
     .d-line-3 { color: #888; font-size: 0.85rem; font-style: italic; }
@@ -176,7 +175,7 @@ def render_metric_card(label, value, delta=None, color=None):
 st.markdown("<h1 class='main-title'>STOCK ADVISOR PRO</h1>", unsafe_allow_html=True)
 st.markdown("<p class='sub-title'>Hệ thống Hỗ trợ Phân tích & Quản trị Rủi ro Đầu tư</p>", unsafe_allow_html=True)
 
-# DISCLAIMER (ĐÃ TÁCH DÒNG RIÊNG BIỆT)
+# DISCLAIMER
 st.markdown("""
 <div class='disclaimer-box'>
     <div class='disclaimer-title'>⚠️ TUYÊN BỐ MIỄN TRỪ TRÁCH NHIỆM</div>
@@ -194,21 +193,15 @@ with col2:
         submit_button = st.form_submit_button(label='🚀 PHÂN TÍCH NGAY', use_container_width=True)
 
 if submit_button:
-    # --- JS HACK V3.0: BLUR MẠNH MẼ HƠN ---
-    # Tự động reload JS bằng random ID để đảm bảo chạy lại mỗi lần bấm nút
+    # JS HACK FOCUS
     js_hack = f"""
     <script>
         function forceBlur() {{
             const activeElement = window.parent.document.activeElement;
-            if (activeElement) {{
-                activeElement.blur();
-            }}
-            // Thử focus vào body để chắc chắn bàn phím ảo đóng lại
+            if (activeElement) {{ activeElement.blur(); }}
             window.parent.document.body.focus();
         }}
-        // Chạy ngay và chạy lại sau 1 chút
-        forceBlur();
-        setTimeout(forceBlur, 200);
+        forceBlur(); setTimeout(forceBlur, 200);
     </script>
     <div style="display:none;">{random.random()}</div> 
     """
@@ -222,20 +215,67 @@ if submit_button:
         symbol = ticker if ".VN" in ticker else f"{ticker}.VN"
         with st.spinner(f'Đang tải dữ liệu {ticker} (Toàn bộ lịch sử)...'):
             try:
-                # DỮ LIỆU MAX: Lấy toàn bộ lịch sử
+                # 1. DỮ LIỆU LỊCH SỬ (Dùng cho Phân tích & Chart lớn)
                 data = yf.download(symbol, period="max", interval="1d", progress=False)
+                
+                # 2. DỮ LIỆU INTRADAY (Dùng cho Chart nhỏ 5 phút)
+                data_intraday = yf.download(symbol, period="1d", interval="5m", progress=False)
+
                 if data.empty:
                     st.error(f"❌ Không tìm thấy mã **{ticker}**!")
                 else:
+                    # Fix MultiIndex
                     if isinstance(data.columns, pd.MultiIndex): data.columns = data.columns.get_level_values(0)
+                    if isinstance(data_intraday.columns, pd.MultiIndex): data_intraday.columns = data_intraday.columns.get_level_values(0)
+
                     df = calculate_indicators(data)
                     rec, reason, bg_class, report = analyze_strategy(df)
                     curr = df.iloc[-1]; prev = df.iloc[-2]
                     
+                    # --- KẾT QUẢ & BÁO CÁO ---
                     st.markdown(f"<div class='result-card {bg_class}'><div class='result-title'>{rec}</div><div class='result-reason'>💡 Lý do: {reason}</div></div>", unsafe_allow_html=True)
                     st.markdown(report, unsafe_allow_html=True)
                     
                     st.markdown("<br>", unsafe_allow_html=True)
+                    
+                    # --- BIỂU ĐỒ INTRADAY (BIẾN ĐỘNG TRONG NGÀY) ---
+                    # Chỉ hiện nếu có dữ liệu intraday
+                    if not data_intraday.empty:
+                        st.divider()
+                        st.markdown(f"### ⏱️ Diễn biến giá trong ngày (5 phút/lần) - {ticker}")
+                        
+                        # Vẽ biểu đồ Intraday (Line Chart)
+                        fig_intra = go.Figure()
+                        
+                        # Đường giá
+                        fig_intra.add_trace(go.Scatter(
+                            x=data_intraday.index, 
+                            y=data_intraday['Close'], 
+                            mode='lines',
+                            line=dict(color='#00E676', width=2),
+                            fill='tozeroy', # Tô màu nền bên dưới cho đẹp
+                            fillcolor='rgba(0, 230, 118, 0.1)',
+                            name='Giá Intraday'
+                        ))
+                        
+                        # Đường tham chiếu (Giá mở cửa)
+                        open_price = data_intraday['Open'].iloc[0]
+                        fig_intra.add_hline(y=open_price, line_dash="dash", line_color="gray", annotation_text="Mở cửa")
+
+                        fig_intra.update_layout(
+                            height=300, # Biểu đồ nhỏ gọn
+                            xaxis_rangeslider_visible=False,
+                            paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                            font=dict(color='#FAFAFA'),
+                            margin=dict(l=10, r=10, t=10, b=10),
+                            xaxis=dict(showgrid=True, gridwidth=1, gridcolor='#333'),
+                            yaxis=dict(showgrid=True, gridwidth=1, gridcolor='#333')
+                        )
+                        st.plotly_chart(fig_intra, use_container_width=True, config={'scrollZoom': False, 'displayModeBar': False})
+                    else:
+                        st.info("⚠️ Chưa có dữ liệu Intraday (Có thể thị trường chưa mở cửa hoặc dữ liệu bị trễ).")
+
+                    # --- CÁC CHỈ SỐ ---
                     col_m1, col_m2, col_m3, col_m4 = st.columns(4)
                     with col_m1: render_metric_card("GIÁ ĐÓNG CỬA", f"{curr['Close']:,.0f}", curr['Close'] - prev['Close'])
                     with col_m2: render_metric_card("RSI (14)", f"{curr['RSI']:.1f}", curr['RSI'] - prev['RSI'])
@@ -247,7 +287,8 @@ if submit_button:
                     st.markdown("<br>", unsafe_allow_html=True)
                     st.divider()
                     
-                    # CẤU HÌNH NÚT ZOOM (DÙNG CHUNG)
+                    # --- CHART 1: GIÁ & BB ---
+                    st.markdown(f"### 📊 Biểu đồ Giá & Bollinger Bands ({ticker})")
                     zoom_config = dict(
                         buttons=list([
                             dict(count=1, label="1T", step="month", stepmode="backward"),
@@ -261,8 +302,6 @@ if submit_button:
                         bgcolor="#262730", activecolor="#00E676", font=dict(color="white")
                     )
 
-                    # --- CHART 1: GIÁ & BB ---
-                    st.markdown(f"### 📊 Biểu đồ Giá & Bollinger Bands ({ticker})")
                     fig1 = go.Figure()
                     fig1.add_trace(go.Scatter(x=df.index, y=df['Upper'], line=dict(color='rgba(255,255,255,0.5)', width=1, dash='dash'), name="Upper Band"))
                     fig1.add_trace(go.Scatter(x=df.index, y=df['Lower'], line=dict(color='rgba(255,255,255,0.5)', width=1, dash='dash'), name="Lower Band"))
@@ -278,10 +317,10 @@ if submit_button:
                         xaxis=dict(
                             showgrid=True, gridwidth=1, gridcolor='#333',
                             rangeselector=zoom_config,
-                            range=[df.index[-252] if len(df) > 252 else df.index[0], df.index[-1]] # Mặc định 1 năm
+                            range=[df.index[-252] if len(df) > 252 else df.index[0], df.index[-1]]
                         )
                     )
-                    fig1.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#333', fixedrange=False) # Cho phép kéo giãn Y thủ công
+                    fig1.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#333', fixedrange=False)
                     st.plotly_chart(fig1, use_container_width=True, config={'scrollZoom': False, 'displayModeBar': True})
 
                     col_c1, col_c2 = st.columns(2)
