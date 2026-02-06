@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 # --- CẤU HÌNH TRANG WEB ---
 st.set_page_config(layout="wide", page_title="Stock Advisor PRO", page_icon="📈")
 
-# --- CSS TÙY CHỈNH (GIAO DIỆN DARK MODE) ---
+# --- CSS TÙY CHỈNH ---
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700;900&display=swap');
@@ -57,7 +57,7 @@ st.markdown("""
     .report-item { margin-bottom: 12px; font-size: 1rem; color: #FAFAFA; display: flex; align-items: center; }
     .icon-dot { margin-right: 12px; font-size: 1.2rem; }
 
-    /* METRIC CARDS - FIX LỖI HTML */
+    /* METRIC CARDS */
     .metric-container {
         background-color: #262730; border: 1px solid #41424C; border-radius: 12px;
         padding: 15px 10px; text-align: center; height: 160px;
@@ -69,12 +69,13 @@ st.markdown("""
     .metric-value { font-size: 2.2rem; font-weight: 900; color: #FFF; line-height: 1; }
     .trend-badge { padding: 10px 30px; border-radius: 30px; font-size: 1.3rem; font-weight: 900; color: white; display: inline-block; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
     
-    /* BUTTON */
     div.stButton > button { width: 100%; border-radius: 8px; font-weight: bold; height: 50px; font-size: 1.1rem; }
     
-    /* INPUT ALIGNMENT */
-    div[data-testid="stNumberInput"] label { font-size: 1rem; font-weight: bold; }
-    div[data-testid="stTextInput"] label { font-size: 1rem; font-weight: bold; }
+    /* FORM ALIGNMENT */
+    /* Căn chỉnh checkbox cho thẳng hàng với input text */
+    div[data-testid="stCheckbox"] {
+        margin-top: 5px; /* Đẩy checkbox xuống một chút */
+    }
     
     /* BACKTEST RESULT BOX */
     .backtest-box {
@@ -122,13 +123,12 @@ def calculate_indicators(df):
     df['ADX'] = df['DX'].ewm(alpha=1/14, adjust=False).mean()
     return df
 
-# --- HÀM VẼ GIAO DIỆN CHỈ SỐ (SỬA LỖI DIV) ---
+# --- HÀM VẼ GIAO DIỆN CHỈ SỐ (ĐÃ FIX LỖI HTML) ---
 def render_metric_card(label, value, delta=None, color=None):
     delta_html = ""
     if delta is not None:
         delta_color = "#00E676" if delta > 0 else ("#FF5252" if delta < 0 else "#888")
         arrow = "▲" if delta > 0 else ("▼" if delta < 0 else "")
-        # Đảm bảo không có ký tự lạ gây lỗi render
         delta_html = f"<div style='font-size:0.9rem; margin-top:5px; color:{delta_color}'>{arrow} {abs(delta):.1f} vs phiên trước</div>"
     
     if color:
@@ -136,21 +136,22 @@ def render_metric_card(label, value, delta=None, color=None):
     else:
         value_html = f"<div class='metric-value'>{value}</div>"
 
-    # Gộp string HTML cẩn thận
-    card_html = f"""
-    <div class='metric-container'>
+    # Kết hợp string cẩn thận để tránh lỗi thẻ đóng dư thừa
+    card_content = f"""
         <div class='metric-label'>{label}</div>
-        <div class='metric-value-box'>{value_html}{delta_html}</div>
-    </div>
+        <div class='metric-value-box'>
+            {value_html}
+            {delta_html}
+        </div>
     """
-    st.markdown(card_html, unsafe_allow_html=True)
+    
+    st.markdown(f"<div class='metric-container'>{card_content}</div>", unsafe_allow_html=True)
 
 # --- LOGIC CHIẾN LƯỢC ---
 def check_signals(curr, prev, prev2):
     price = curr['Close']; rsi = curr['RSI']; adx = curr['ADX']
     lower_band = curr['Lower']; upper_band = curr['Upper']
     
-    # 1. MUA
     buy_trigger = (price <= lower_band * 1.01) and (rsi < 30)
     if buy_trigger:
         if adx < 25:
@@ -160,7 +161,6 @@ def check_signals(curr, prev, prev2):
         else: 
             if (curr['-DI'] > curr['+DI']) and (curr['-DI'] < prev['-DI']): return 1
             
-    # 2. BÁN
     sell_trigger = (price >= upper_band * 0.99) and (rsi > 70)
     if sell_trigger:
         if adx < 25:
@@ -214,15 +214,12 @@ def analyze_current_market(df):
     return rec, reason, color_class, report
 
 # --- HÀM BACKTEST ---
-def run_simulation(df, stop_loss_pct):
+def run_simulation(df, stop_loss_pct, use_sl):
     initial_capital = 100_000_000
     cash = initial_capital
     shares = 0
     position = False
     entry_price = 0
-    
-    # Sử dụng logic Stoploss động (0 = Tắt)
-    use_sl = stop_loss_pct > 0
     
     for i in range(50, len(df)):
         curr = df.iloc[i]
@@ -280,17 +277,22 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# FORM NHẬP LIỆU (ĐÃ CĂN CHỈNH)
 col1, col2, col3 = st.columns([1, 2, 1]) 
 with col2:
     with st.form(key='search_form'):
-        # Chia 2 cột tỷ lệ 2:1 cho cân đối
-        c_input, c_sl = st.columns([2, 1])
-        with c_input:
+        # CHIA LÀM 3 CỘT: MÃ - CHECKBOX - GIÁ TRỊ %
+        c_ticker, c_cb, c_val = st.columns([1.8, 0.6, 0.8])
+        
+        with c_ticker:
             ticker_input = st.text_input("Mã cổ phiếu:", value="", placeholder="VD: HPG, VNM...").upper()
-        with c_sl:
-            # Chỉ dùng Number Input, bỏ Checkbox để thẳng hàng
-            stop_loss_input = st.number_input("Cắt lỗ % (0=Tắt):", min_value=0.0, max_value=20.0, value=7.0, step=0.5)
+            
+        with c_cb:
+            # Dùng st.write("") để đẩy checkbox xuống cho ngang hàng với input text
+            st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+            use_sl = st.checkbox("Bật SL", value=True)
+            
+        with c_val:
+            stop_loss_input = st.number_input("Mức %:", min_value=0.5, max_value=20.0, value=7.0, step=0.5)
             
         submit_button = st.form_submit_button(label='🚀 PHÂN TÍCH & BACKTEST', use_container_width=True)
 
@@ -302,9 +304,11 @@ if submit_button or 'data' in st.session_state:
         ticker = ticker_input.strip()
         st.session_state['ticker'] = ticker
         st.session_state['sl_pct'] = stop_loss_input
+        st.session_state['use_sl'] = use_sl
     elif 'ticker' in st.session_state:
         ticker = st.session_state['ticker']
         stop_loss_input = st.session_state.get('sl_pct', 7.0)
+        use_sl = st.session_state.get('use_sl', True)
 
     if not ticker:
         st.warning("⚠️ Vui lòng nhập mã cổ phiếu!")
@@ -346,10 +350,10 @@ if submit_button or 'data' in st.session_state:
 
             st.markdown(f"<div class='result-card {bg_class}'><div class='result-title'>{rec}</div><div class='result-reason'>💡 Lý do: {reason}</div></div>", unsafe_allow_html=True)
             
-            # BACKTEST
-            total_return, avg_return = run_simulation(df, stop_loss_input)
+            # BACKTEST RESULT
+            total_return, avg_return = run_simulation(df, stop_loss_input, use_sl)
             bk_color = "#00E676" if avg_return > 0 else "#FF5252"
-            sl_text = f"Stoploss {stop_loss_input}%" if stop_loss_input > 0 else "KHÔNG Cắt Lỗ"
+            sl_text = f"Stoploss {stop_loss_input}%" if use_sl else "KHÔNG Cắt Lỗ"
             
             st.markdown(f"""
             <div class='backtest-box'>
