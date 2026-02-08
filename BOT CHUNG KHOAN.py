@@ -72,24 +72,19 @@ st.markdown("""
     
     div.stButton > button { width: 100%; border-radius: 8px; font-weight: bold; height: 50px; font-size: 1.1rem; }
     
-    /* BACKTEST RESULT BOX (UPDATED) */
-    .backtest-box {
+    /* BACKTEST RESULT BOX (New Style) */
+    .bt-container {
+        display: flex; justify-content: space-around; align-items: center;
         background: linear-gradient(135deg, #263238 0%, #37474F 100%);
         border-radius: 10px; padding: 25px; margin-top: 20px; text-align: center;
         border: 1px solid #546E7A;
-        display: flex; justify-content: space-around; align-items: center;
     }
-    .bt-section { flex: 1; text-align: center; }
-    .bt-label { color: #B0BEC5; font-size: 0.9rem; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.5px; }
-    .bt-val { font-size: 2.2rem; font-weight: 900; }
-    .bt-note { font-size: 0.85rem; color: #78909C; margin-top: 5px; }
-    .bt-divider { width: 1px; background-color: #546E7A; height: 80px; margin: 0 20px; }
-    
-    /* OPTIMAL BADGE */
-    .optimal-badge {
-        background-color: #FFD700; color: #000; padding: 2px 8px; border-radius: 4px;
-        font-size: 0.7rem; font-weight: bold; vertical-align: middle; margin-left: 5px;
-    }
+    .bt-col { flex: 1; text-align: center; }
+    .bt-label { color: #B0BEC5; font-size: 0.9rem; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: bold; }
+    .bt-val { font-size: 2.2rem; font-weight: 900; line-height: 1.2; }
+    .bt-note { font-size: 0.85rem; color: #90A4AE; margin-top: 5px; }
+    .bt-divider { width: 1px; background-color: #546E7A; height: 60px; margin: 0 20px; opacity: 0.5; }
+    .opt-badge { background-color: #FFD700; color: #000; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: bold; margin-left: 5px; vertical-align: middle; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -222,10 +217,7 @@ def run_simulation(df, stop_loss_pct):
     # 0 = Tắt
     use_sl = stop_loss_pct > 0
     
-    # Pre-calculate signals (Optimization Speedup)
-    # Tuy nhiên, do logic phụ thuộc vào loop, ta giữ nguyên loop
-    # Nhưng tính sẵn Signal column sẽ nhanh hơn gọi hàm mỗi lần
-    # Ở đây để đơn giản và ổn định ta giữ nguyên loop cũ
+    if len(df) < 50: return 0
     
     for i in range(50, len(df)):
         curr = df.iloc[i]
@@ -263,25 +255,33 @@ def run_simulation(df, stop_loss_pct):
         final_val += shares * df.iloc[-1]['Close']
     
     total_return_pct = ((final_val - initial_capital) / initial_capital) * 100
-    
     days = (df.index[-1] - df.index[0]).days
     years = days / 365.25
     avg_annual_return = total_return_pct / years if years > 0 else 0
     
     return avg_annual_return
 
-# --- HÀM TÌM STOPLOSS TỐI ƯU ---
+# --- HÀM TỐI ƯU HÓA (OPTIMIZER) ---
 def find_optimal_stoploss(df):
     best_sl = 0.0
     best_return = -9999.0
     
-    # Loop 0.0 -> 10.0 step 0.5
-    for sl in [x * 0.5 for x in range(21)]:
+    # Thanh loading
+    progress_text = "Đang tìm mức Stoploss tối ưu (0% - 10%)..."
+    my_bar = st.progress(0, text=progress_text)
+    
+    # Chạy từ 0.0% -> 10.0%, bước nhảy 0.5% (21 mức)
+    range_values = [x * 0.5 for x in range(21)]
+    total_steps = len(range_values)
+    
+    for i, sl in enumerate(range_values):
         ret = run_simulation(df, sl)
         if ret > best_return:
             best_return = ret
             best_sl = sl
-            
+        my_bar.progress((i + 1) / total_steps, text=f"Đang test Stoploss: {sl}%")
+        
+    my_bar.empty() # Xóa thanh loading khi xong
     return best_sl, best_return
 
 # --- GIAO DIỆN CHÍNH ---
@@ -300,12 +300,13 @@ st.markdown("""
 col1, col2, col3 = st.columns([1, 2, 1]) 
 with col2:
     with st.form(key='search_form'):
-        c_ticker, c_sl = st.columns([2, 1])
+        # QUAY VỀ 2 CỘT CHUẨN ĐỂ KHÔNG BỊ LỆCH
+        c_ticker, c_val = st.columns([2, 1])
         
         with c_ticker:
             ticker_input = st.text_input("Mã cổ phiếu:", value="", placeholder="VD: HPG, VNM...").upper()
             
-        with c_sl:
+        with c_val:
             stop_loss_input = st.number_input("Cắt lỗ % (0 = Tắt):", min_value=0.0, max_value=20.0, value=7.0, step=0.5)
             
         submit_button = st.form_submit_button(label='🚀 PHÂN TÍCH & BACKTEST', use_container_width=True)
@@ -362,35 +363,37 @@ if submit_button or 'data' in st.session_state:
 
             st.markdown(f"<div class='result-card {bg_class}'><div class='result-title'>{rec}</div><div class='result-reason'>💡 Lý do: {reason}</div></div>", unsafe_allow_html=True)
             
-            # --- BACKTEST & OPTIMIZATION ---
-            # 1. Chạy Backtest với SL người dùng chọn
+            # --- BACKTEST & OPTIMIZATION (CÓ LOADING BAR) ---
             user_return = run_simulation(df, stop_loss_input)
             
-            # 2. Chạy Optimizer tìm SL tốt nhất
-            opt_sl, opt_return = find_optimal_stoploss(df)
+            # Chỉ chạy tối ưu nếu dữ liệu mới
+            if 'opt_sl' not in st.session_state or st.session_state.get('opt_symbol') != symbol:
+                opt_sl, opt_return = find_optimal_stoploss(df)
+                st.session_state['opt_sl'] = opt_sl
+                st.session_state['opt_return'] = opt_return
+                st.session_state['opt_symbol'] = symbol
+            else:
+                opt_sl = st.session_state['opt_sl']
+                opt_return = st.session_state['opt_return']
             
-            # Màu sắc
             u_color = "#00E676" if user_return > 0 else "#FF5252"
-            o_color = "#FFD700" # Màu vàng cho tối ưu
-            
+            o_color = "#FFD700"
             sl_text_user = f"{stop_loss_input}%" if stop_loss_input > 0 else "OFF"
             sl_text_opt = f"{opt_sl}%" if opt_sl > 0 else "OFF"
             
-            # Hiển thị kết quả so sánh
+            # Hiển thị box so sánh (Fixed HTML Structure)
             st.markdown(f"""
-            <div class='backtest-box'>
-                <div class='bt-section'>
-                    <div class='bt-label'>LỰA CHỌN CỦA BẠN (SL {sl_text_user})</div>
+            <div class='bt-container'>
+                <div class='bt-col'>
+                    <div class='bt-label'>CỦA BẠN (SL {sl_text_user})</div>
                     <div class='bt-val' style='color:{u_color}'>{user_return:+.1f}%/năm</div>
-                    <div class='bt-note'>Hiệu quả TB hàng năm</div>
+                    <div class='bt-note'>Hiệu quả TB</div>
                 </div>
-                
                 <div class='bt-divider'></div>
-                
-                <div class='bt-section'>
-                    <div class='bt-label'>GỢI Ý TỐI ƯU <span class='optimal-badge'>RECOMMENDED</span></div>
+                <div class='bt-col'>
+                    <div class='bt-label'>TỐI ƯU NHẤT <span class='opt-badge'>TOP</span></div>
                     <div class='bt-val' style='color:{o_color}'>{opt_return:+.1f}%/năm</div>
-                    <div class='bt-note'>Với mức Stoploss <b>{sl_text_opt}</b></div>
+                    <div class='bt-note'>Với SL <b>{sl_text_opt}</b></div>
                 </div>
             </div>
             """, unsafe_allow_html=True)
