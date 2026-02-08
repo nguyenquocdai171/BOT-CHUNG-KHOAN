@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 # --- CẤU HÌNH TRANG WEB ---
 st.set_page_config(layout="wide", page_title="Stock Advisor PRO", page_icon="📈")
 
-# --- CSS TÙY CHỈNH ---
+# --- CSS TÙY CHỈNH (GIAO DIỆN DARK MODE) ---
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700;900&display=swap');
@@ -40,7 +40,7 @@ st.markdown("""
     .d-line-2 { color: #E0E0E0; font-size: 1rem; font-weight: bold; margin-bottom: 5px; text-decoration: underline; text-decoration-color: #555; }
     .d-line-3 { color: #888; font-size: 0.85rem; font-style: italic; }
 
-    /* RESULT CARD */
+    /* RESULT & METRICS */
     .result-card {
         padding: 20px; border-radius: 12px; text-align: center; margin-bottom: 20px;
         border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 4px 15px rgba(0,0,0,0.3);
@@ -52,13 +52,12 @@ st.markdown("""
     .result-title { font-size: 2.2rem; font-weight: 800; color: white; margin: 0; text-shadow: 0 2px 4px rgba(0,0,0,0.5); }
     .result-reason { font-size: 1.1rem; color: #EEE; margin-top: 10px; font-style: italic; }
 
-    /* REPORT BOX */
     .report-box { background-color: #1E1E1E; border: 1px solid #444; border-radius: 12px; padding: 25px; margin-top: 10px; }
     .report-header { color: #00E676; font-size: 1.2rem; font-weight: bold; margin-bottom: 15px; border-bottom: 1px solid #444; padding-bottom: 10px; text-transform: uppercase; }
     .report-item { margin-bottom: 12px; font-size: 1rem; color: #FAFAFA; display: flex; align-items: center; }
     .icon-dot { margin-right: 12px; font-size: 1.2rem; }
 
-    /* METRIC CARDS */
+    /* METRIC CARDS - FIX LỖI HTML */
     .metric-container {
         background-color: #262730; border: 1px solid #41424C; border-radius: 12px;
         padding: 15px 10px; text-align: center; height: 160px;
@@ -70,7 +69,12 @@ st.markdown("""
     .metric-value { font-size: 2.2rem; font-weight: 900; color: #FFF; line-height: 1; }
     .trend-badge { padding: 10px 30px; border-radius: 30px; font-size: 1.3rem; font-weight: 900; color: white; display: inline-block; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
     
+    /* BUTTON */
     div.stButton > button { width: 100%; border-radius: 8px; font-weight: bold; height: 50px; font-size: 1.1rem; }
+    
+    /* INPUT ALIGNMENT */
+    div[data-testid="stNumberInput"] label { font-size: 1rem; font-weight: bold; }
+    div[data-testid="stTextInput"] label { font-size: 1rem; font-weight: bold; }
     
     /* BACKTEST RESULT BOX */
     .backtest-box {
@@ -118,22 +122,27 @@ def calculate_indicators(df):
     df['ADX'] = df['DX'].ewm(alpha=1/14, adjust=False).mean()
     return df
 
-# --- HÀM VẼ GIAO DIỆN CHỈ SỐ (FIXED </div> ERROR) ---
+# --- HÀM VẼ GIAO DIỆN CHỈ SỐ (SỬA LỖI DIV) ---
 def render_metric_card(label, value, delta=None, color=None):
     delta_html = ""
     if delta is not None:
         delta_color = "#00E676" if delta > 0 else ("#FF5252" if delta < 0 else "#888")
         arrow = "▲" if delta > 0 else ("▼" if delta < 0 else "")
-        delta_val = f"{abs(delta):.1f}"
-        delta_html = f"<div style='font-size:0.9rem; margin-top:5px; color:{delta_color}'>{arrow} {delta_val} vs phiên trước</div>"
+        # Đảm bảo không có ký tự lạ gây lỗi render
+        delta_html = f"<div style='font-size:0.9rem; margin-top:5px; color:{delta_color}'>{arrow} {abs(delta):.1f} vs phiên trước</div>"
     
     if color:
         value_html = f"<div class='trend-badge' style='background-color:{color}'>{value}</div>"
     else:
         value_html = f"<div class='metric-value'>{value}</div>"
 
-    # Viết thành 1 dòng string duy nhất để tránh lỗi parser
-    card_html = f"<div class='metric-container'><div class='metric-label'>{label}</div><div class='metric-value-box'>{value_html}{delta_html}</div></div>"
+    # Gộp string HTML cẩn thận
+    card_html = f"""
+    <div class='metric-container'>
+        <div class='metric-label'>{label}</div>
+        <div class='metric-value-box'>{value_html}{delta_html}</div>
+    </div>
+    """
     st.markdown(card_html, unsafe_allow_html=True)
 
 # --- LOGIC CHIẾN LƯỢC ---
@@ -141,6 +150,7 @@ def check_signals(curr, prev, prev2):
     price = curr['Close']; rsi = curr['RSI']; adx = curr['ADX']
     lower_band = curr['Lower']; upper_band = curr['Upper']
     
+    # 1. MUA
     buy_trigger = (price <= lower_band * 1.01) and (rsi < 30)
     if buy_trigger:
         if adx < 25:
@@ -150,6 +160,7 @@ def check_signals(curr, prev, prev2):
         else: 
             if (curr['-DI'] > curr['+DI']) and (curr['-DI'] < prev['-DI']): return 1
             
+    # 2. BÁN
     sell_trigger = (price >= upper_band * 0.99) and (rsi > 70)
     if sell_trigger:
         if adx < 25:
@@ -210,7 +221,7 @@ def run_simulation(df, stop_loss_pct):
     position = False
     entry_price = 0
     
-    # 0 = Tắt
+    # Sử dụng logic Stoploss động (0 = Tắt)
     use_sl = stop_loss_pct > 0
     
     for i in range(50, len(df)):
@@ -269,17 +280,17 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
+# FORM NHẬP LIỆU (ĐÃ CĂN CHỈNH)
 col1, col2, col3 = st.columns([1, 2, 1]) 
 with col2:
     with st.form(key='search_form'):
-        # Quay về giao diện 2 cột đơn giản, dễ nhìn, không lệch
-        c_ticker, c_sl = st.columns([2, 1])
-        
-        with c_ticker:
+        # Chia 2 cột tỷ lệ 2:1 cho cân đối
+        c_input, c_sl = st.columns([2, 1])
+        with c_input:
             ticker_input = st.text_input("Mã cổ phiếu:", value="", placeholder="VD: HPG, VNM...").upper()
-            
         with c_sl:
-            stop_loss_input = st.number_input("Cắt lỗ % (0 = Tắt):", min_value=0.0, max_value=20.0, value=7.0, step=0.5)
+            # Chỉ dùng Number Input, bỏ Checkbox để thẳng hàng
+            stop_loss_input = st.number_input("Cắt lỗ % (0=Tắt):", min_value=0.0, max_value=20.0, value=7.0, step=0.5)
             
         submit_button = st.form_submit_button(label='🚀 PHÂN TÍCH & BACKTEST', use_container_width=True)
 
@@ -335,7 +346,7 @@ if submit_button or 'data' in st.session_state:
 
             st.markdown(f"<div class='result-card {bg_class}'><div class='result-title'>{rec}</div><div class='result-reason'>💡 Lý do: {reason}</div></div>", unsafe_allow_html=True)
             
-            # BACKTEST RESULT
+            # BACKTEST
             total_return, avg_return = run_simulation(df, stop_loss_input)
             bk_color = "#00E676" if avg_return > 0 else "#FF5252"
             sl_text = f"Stoploss {stop_loss_input}%" if stop_loss_input > 0 else "KHÔNG Cắt Lỗ"
