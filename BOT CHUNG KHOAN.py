@@ -5,6 +5,7 @@ import numpy as np
 import plotly.graph_objects as go
 import streamlit.components.v1 as components
 import random
+import time  # Thêm thư viện time để tạo hiệu ứng thanh loading
 from datetime import datetime, timedelta
 
 # --- CẤU HÌNH TRANG WEB ---
@@ -295,15 +296,24 @@ def find_optimal_stoploss(df):
     best_return = -9999.0
     best_hold = 0.0
     
-    range_values = [x * 0.5 for x in range(21)] # Test từ 0 đến 10%
+    progress_text = "🚀 Đang quét 21 kịch bản Stoploss (0% - 10%)..."
+    my_bar = st.progress(0, text=progress_text)
     
-    for sl in range_values:
+    range_values = [x * 0.5 for x in range(21)] # Test từ 0 đến 10%
+    total_steps = len(range_values)
+    
+    for i, sl in enumerate(range_values):
         ret, hold = run_simulation(df, sl)
         if ret > best_return:
             best_return = ret
             best_sl = sl
             best_hold = hold
             
+        # Cập nhật thanh tiến độ và tạo độ trễ nhân tạo (0.02s) để có hiệu ứng "chạy cái vèo"
+        my_bar.progress((i + 1) / total_steps, text=f"🔍 Đang phân tích mức Stoploss: {sl}%")
+        time.sleep(0.02) 
+        
+    my_bar.empty()
     return best_sl, best_return, best_hold
 
 # --- GIAO DIỆN CHÍNH ---
@@ -350,12 +360,11 @@ if submit_button or 'data' in st.session_state:
     else:
         symbol = ticker if ".VN" in ticker else f"{ticker}.VN"
         
-        # --- BẮT ĐẦU BLOCK TÍNH TOÁN & ẨN UI CHO ĐẾN KHI XONG ---
-        # Dùng spinner mượt mà thay thế cho progress bar nhảy từng nấc
-        with st.spinner(f'Đang tải dữ liệu và tính toán hệ thống cho {ticker} (Vui lòng đợi)...'):
-            try:
-                # Chỉ tải lại từ API nếu đổi mã để tối ưu tốc độ
-                if 'data' not in st.session_state or st.session_state.get('current_symbol') != symbol:
+        # --- BẮT ĐẦU BLOCK TÍNH TOÁN ---
+        try:
+            # 1. TẢI DỮ LIỆU (Dùng Spinner vòng tròn)
+            if 'data' not in st.session_state or st.session_state.get('current_symbol') != symbol:
+                with st.spinner(f'Đang kết nối thị trường tải dữ liệu {ticker}...'):
                     df_full = yf.download(symbol, period="max", interval="1d", progress=False)
                     if df_full.empty:
                         st.error(f"❌ Không tìm thấy mã **{ticker}**!")
@@ -379,33 +388,34 @@ if submit_button or 'data' in st.session_state:
                             df_intra.index = df_intra.index.tz_convert('Asia/Ho_Chi_Minh')
                     st.session_state['data_intra'] = df_intra
 
-                # Lấy data từ cache
-                df = st.session_state['data']
-                df_intra = st.session_state['data_intra']
-                
-                # Chạy Backtest ngay lập tức nhờ thuật toán đã tối ưu
-                user_return, user_hold = run_simulation(df, stop_loss_input)
-                
-                if 'opt_sl' not in st.session_state or st.session_state.get('opt_symbol') != symbol:
-                    opt_sl, opt_return, opt_hold = find_optimal_stoploss(df)
-                    st.session_state['opt_sl'] = opt_sl
-                    st.session_state['opt_return'] = opt_return
-                    st.session_state['opt_hold'] = opt_hold
-                    st.session_state['opt_symbol'] = symbol
-                else:
-                    opt_sl = st.session_state['opt_sl']
-                    opt_return = st.session_state['opt_return']
-                    opt_hold = st.session_state['opt_hold']
-                
-                # Chuẩn bị Report Khuyến nghị
-                rec, reason, bg_class, report = analyze_current_market(df)
-                curr = df.iloc[-1]; prev = df.iloc[-2]
-                
-            except Exception as e:
-                st.error(f"Lỗi hệ thống: {e}")
-                st.stop()
-        # --- KẾT THÚC BLOCK TÍNH TOÁN (Giờ mới Render UI) ---
+            # Lấy data từ cache
+            df = st.session_state['data']
+            df_intra = st.session_state['data_intra']
+            
+            # Chuẩn bị Report Khuyến nghị hiện tại
+            rec, reason, bg_class, report = analyze_current_market(df)
+            curr = df.iloc[-1]; prev = df.iloc[-2]
 
+            # 2. CHẠY BACKTEST & TỐI ƯU HÓA (Dùng Thanh Progress chạy ngang)
+            user_return, user_hold = run_simulation(df, stop_loss_input)
+            
+            # Chỉ hiện thanh loading tối ưu hóa khi đổi mã mới
+            if 'opt_sl' not in st.session_state or st.session_state.get('opt_symbol') != symbol:
+                opt_sl, opt_return, opt_hold = find_optimal_stoploss(df)
+                st.session_state['opt_sl'] = opt_sl
+                st.session_state['opt_return'] = opt_return
+                st.session_state['opt_hold'] = opt_hold
+                st.session_state['opt_symbol'] = symbol
+            else:
+                opt_sl = st.session_state['opt_sl']
+                opt_return = st.session_state['opt_return']
+                opt_hold = st.session_state['opt_hold']
+
+            # --- KẾT THÚC TÍNH TOÁN, RENDER UI ---
+            st.markdown(f"<div class='result-card {bg_class}'><div class='result-title'>{rec}</div><div class='result-reason'>💡 Lý do: {reason}</div></div>", unsafe_allow_html=True)
+            
+            u_color = "#00E676" if user_return > 0 else "#FF5252"
+            o_color = "#00E5FF" 
         # 1. RENDER KẾT QUẢ HIỆN TẠI (MUA/BÁN)
         st.markdown(f"<div class='result-card {bg_class}'><div class='result-title'>{rec}</div><div class='result-reason'>💡 Lý do: {reason}</div></div>", unsafe_allow_html=True)
         
