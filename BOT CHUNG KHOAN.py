@@ -72,7 +72,7 @@ st.markdown("""
     
     div.stButton > button { width: 100%; border-radius: 8px; font-weight: bold; height: 50px; font-size: 1.1rem; }
     
-    /* BACKTEST RESULT BOX (New Style) */
+    /* BACKTEST RESULT BOX (RESPONSIVE & NEW COLORS) */
     .bt-container {
         display: flex; justify-content: space-around; align-items: center;
         background: linear-gradient(135deg, #263238 0%, #37474F 100%);
@@ -83,8 +83,20 @@ st.markdown("""
     .bt-label { color: #B0BEC5; font-size: 0.9rem; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: bold; }
     .bt-val { font-size: 2.2rem; font-weight: 900; line-height: 1.2; }
     .bt-note { font-size: 0.85rem; color: #90A4AE; margin-top: 5px; }
-    .bt-divider { width: 1px; background-color: #546E7A; height: 60px; margin: 0 20px; opacity: 0.5; }
-    .opt-badge { background-color: #FFD700; color: #000; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: bold; margin-left: 5px; vertical-align: middle; }
+    .bt-hold { font-size: 0.85rem; color: #FFF; background-color: rgba(255,255,255,0.1); padding: 4px 10px; border-radius: 12px; display: inline-block; margin-top: 8px; }
+    .bt-divider { width: 1px; background-color: #546E7A; height: 80px; margin: 0 20px; opacity: 0.5; }
+    
+    /* Nút Badge Tối ưu đổi sang màu Xanh Cyan tươi mát */
+    .opt-badge { background-color: #00B8D4; color: #FFF; padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: bold; margin-left: 5px; vertical-align: middle; box-shadow: 0 0 8px rgba(0, 229, 255, 0.4); }
+
+    /* MEDIA QUERIES CHO ĐIỆN THOẠI (MOBILE RESPONSIVE) */
+    @media (max-width: 768px) {
+        .bt-container { flex-direction: column; padding: 15px; }
+        .bt-divider { width: 100%; height: 1px; margin: 15px 0; }
+        .bt-val { font-size: 1.8rem; } /* Giảm size chữ trên đt */
+        .metric-container { height: auto; padding: 15px 5px; }
+        .metric-value { font-size: 1.8rem; }
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -123,7 +135,7 @@ def calculate_indicators(df):
     df['ADX'] = df['DX'].ewm(alpha=1/14, adjust=False).mean()
     return df
 
-# --- HÀM VẼ GIAO DIỆN CHỈ SỐ ---
+# --- HÀM VẼ GIAO DIỆN CHỈ SỐ (MÃ HTML LIỀN MẠCH CHỐNG LỖI) ---
 def render_metric_card(label, value, delta=None, color=None):
     delta_html = ""
     if delta is not None:
@@ -206,41 +218,51 @@ def analyze_current_market(df):
     """
     return rec, reason, color_class, report
 
-# --- HÀM BACKTEST (CORE) ---
+# --- HÀM BACKTEST (CORE - BỔ SUNG TÍNH SỐ NGÀY HOLD) ---
 def run_simulation(df, stop_loss_pct):
     initial_capital = 100_000_000
     cash = initial_capital
     shares = 0
     position = False
     entry_price = 0
+    entry_date = None
     
-    # 0 = Tắt
+    hold_durations = [] # Lưu số ngày nắm giữ các lệnh thành công
+    
     use_sl = stop_loss_pct > 0
-    
-    if len(df) < 50: return 0
+    if len(df) < 50: return 0, 0
     
     for i in range(50, len(df)):
         curr = df.iloc[i]
         prev = df.iloc[i-1]
         prev2 = df.iloc[i-2]
         price = curr['Close']
+        current_date = df.index[i]
         
         if position:
+            # KIỂM TRA STOPLOSS
             if use_sl:
                 pct_change = (price - entry_price) / entry_price
                 if pct_change <= -(stop_loss_pct / 100.0):
                     cash += shares * price * (1 - 0.0015)
                     shares = 0
                     position = False
+                    # KHÔNG đưa vào hold_durations vì lệnh này bị cắt lỗ
                     continue
             
+            # KIỂM TRA TÍN HIỆU BÁN (Chốt lời)
             signal = check_signals(curr, prev, prev2)
             if signal == -1:
                 cash += shares * price * (1 - 0.0015)
                 shares = 0
                 position = False
+                
+                # Tính số ngày hold và lưu lại
+                days_held = (current_date - entry_date).days
+                hold_durations.append(days_held)
                 continue
         
+        # KIỂM TRA TÍN HIỆU MUA
         if not position:
             signal = check_signals(curr, prev, prev2)
             if signal == 1:
@@ -248,41 +270,46 @@ def run_simulation(df, stop_loss_pct):
                 if shares > 0:
                     cash -= shares * price * (1 + 0.0015)
                     entry_price = price
+                    entry_date = current_date
                     position = True
     
     final_val = cash
     if position:
         final_val += shares * df.iloc[-1]['Close']
     
+    # Tính lợi nhuận trung bình năm
     total_return_pct = ((final_val - initial_capital) / initial_capital) * 100
     days = (df.index[-1] - df.index[0]).days
     years = days / 365.25
     avg_annual_return = total_return_pct / years if years > 0 else 0
     
-    return avg_annual_return
+    # Tính trung bình số ngày nắm giữ (loại trừ các lệnh SL)
+    avg_hold_days = sum(hold_durations) / len(hold_durations) if len(hold_durations) > 0 else 0
+    
+    return avg_annual_return, avg_hold_days
 
 # --- HÀM TỐI ƯU HÓA (OPTIMIZER) ---
 def find_optimal_stoploss(df):
     best_sl = 0.0
     best_return = -9999.0
+    best_hold = 0.0
     
-    # Thanh loading
     progress_text = "Đang tìm mức Stoploss tối ưu (0% - 10%)..."
     my_bar = st.progress(0, text=progress_text)
     
-    # Chạy từ 0.0% -> 10.0%, bước nhảy 0.5% (21 mức)
     range_values = [x * 0.5 for x in range(21)]
     total_steps = len(range_values)
     
     for i, sl in enumerate(range_values):
-        ret = run_simulation(df, sl)
+        ret, hold = run_simulation(df, sl)
         if ret > best_return:
             best_return = ret
             best_sl = sl
+            best_hold = hold
         my_bar.progress((i + 1) / total_steps, text=f"Đang test Stoploss: {sl}%")
         
-    my_bar.empty() # Xóa thanh loading khi xong
-    return best_sl, best_return
+    my_bar.empty()
+    return best_sl, best_return, best_hold
 
 # --- GIAO DIỆN CHÍNH ---
 st.markdown("<h1 class='main-title'>STOCK ADVISOR PRO</h1>", unsafe_allow_html=True)
@@ -300,7 +327,7 @@ st.markdown("""
 col1, col2, col3 = st.columns([1, 2, 1]) 
 with col2:
     with st.form(key='search_form'):
-        # QUAY VỀ 2 CỘT CHUẨN ĐỂ KHÔNG BỊ LỆCH
+        # CHỈ 2 CỘT GỌN GÀNG
         c_ticker, c_val = st.columns([2, 1])
         
         with c_ticker:
@@ -363,40 +390,44 @@ if submit_button or 'data' in st.session_state:
 
             st.markdown(f"<div class='result-card {bg_class}'><div class='result-title'>{rec}</div><div class='result-reason'>💡 Lý do: {reason}</div></div>", unsafe_allow_html=True)
             
-            # --- BACKTEST & OPTIMIZATION (CÓ LOADING BAR) ---
-            user_return = run_simulation(df, stop_loss_input)
+            # --- BACKTEST & OPTIMIZATION ---
+            user_return, user_hold = run_simulation(df, stop_loss_input)
             
-            # Chỉ chạy tối ưu nếu dữ liệu mới
             if 'opt_sl' not in st.session_state or st.session_state.get('opt_symbol') != symbol:
-                opt_sl, opt_return = find_optimal_stoploss(df)
+                opt_sl, opt_return, opt_hold = find_optimal_stoploss(df)
                 st.session_state['opt_sl'] = opt_sl
                 st.session_state['opt_return'] = opt_return
+                st.session_state['opt_hold'] = opt_hold
                 st.session_state['opt_symbol'] = symbol
             else:
                 opt_sl = st.session_state['opt_sl']
                 opt_return = st.session_state['opt_return']
+                opt_hold = st.session_state['opt_hold']
             
             u_color = "#00E676" if user_return > 0 else "#FF5252"
-            o_color = "#FFD700"
+            o_color = "#00E5FF" # Đổi màu Vàng thành Cyan / Neon Blue tươi mát
             sl_text_user = f"{stop_loss_input}%" if stop_loss_input > 0 else "OFF"
             sl_text_opt = f"{opt_sl}%" if opt_sl > 0 else "OFF"
             
-            # Hiển thị box so sánh (Fixed HTML Structure)
-            st.markdown(f"""
+            # Hiển thị box so sánh (Mã HTML Liền mạch)
+            html_box = f"""
             <div class='bt-container'>
                 <div class='bt-col'>
                     <div class='bt-label'>CỦA BẠN (SL {sl_text_user})</div>
                     <div class='bt-val' style='color:{u_color}'>{user_return:+.1f}%/năm</div>
-                    <div class='bt-note'>Hiệu quả TB</div>
+                    <div class='bt-note'>Hiệu quả TB hàng năm</div>
+                    <div class='bt-hold'>⏳ Giữ lệnh TB: {user_hold:.0f} ngày</div>
                 </div>
                 <div class='bt-divider'></div>
                 <div class='bt-col'>
-                    <div class='bt-label'>TỐI ƯU NHẤT <span class='opt-badge'>TOP</span></div>
+                    <div class='bt-label'>TỐI ƯU NHẤT <span class='opt-badge'>RECOMMENDED</span></div>
                     <div class='bt-val' style='color:{o_color}'>{opt_return:+.1f}%/năm</div>
-                    <div class='bt-note'>Với SL <b>{sl_text_opt}</b></div>
+                    <div class='bt-note'>Với mức Stoploss <b>{sl_text_opt}</b></div>
+                    <div class='bt-hold'>⏳ Giữ lệnh TB: {opt_hold:.0f} ngày</div>
                 </div>
             </div>
-            """, unsafe_allow_html=True)
+            """
+            st.markdown(html_box, unsafe_allow_html=True)
             
             st.markdown(report, unsafe_allow_html=True)
             st.markdown("<br>", unsafe_allow_html=True)
