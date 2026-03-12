@@ -346,7 +346,7 @@ st.markdown("""
     <div class='disclaimer-title'>⚠️ TUYÊN BỐ MIỄN TRỪ TRÁCH NHIỆM</div>
     <div class='d-line-1'>Công cụ sử dụng thuật toán kỹ thuật (BB, RSI, ADX) để hỗ trợ tham khảo.</div>
     <div class='d-line-2'>KHÔNG phải lời khuyên đầu tư tài chính chính thức.</div>
-    <div class='d-line-3'>Người dùng tự chịu trách nhiệm. Dữ liệu Yahoo Finance (Trễ 15p).</div>
+    <div class='d-line-3'>Người dùng tự chịu trách nhiệm.</div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -529,3 +529,4 @@ if submit_button or 'data' in st.session_state:
                 fig3.add_hline(y=25, line_dash="dot", line_color="gray")
                 fig3.update_layout(height=350, xaxis_rangeslider_visible=False, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#FAFAFA'), margin=dict(l=10, r=10, t=10, b=40), legend=dict(orientation="h", yanchor="top", y=-0.15, xanchor="center", x=0.5), xaxis=dict(showgrid=True, gridwidth=1, gridcolor='#333'), yaxis=dict(showgrid=True, gridwidth=1, gridcolor='#333', autorange=True))
                 st.plotly_chart(fig3, use_container_width=True, config={'scrollZoom': False})
+
